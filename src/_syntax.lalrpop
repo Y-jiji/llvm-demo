@@ -1,0 +1,39 @@
+use crate::syntax::*;
+
+grammar;
+
+BinOps: Ops = {
+	"+" => Ops::Add,
+	"-" => Ops::Sub,
+	"*" => Ops::Mul,
+	"/" => Ops::Div,
+}
+
+UniOps: Ops = {
+	"~" => Ops::Neg,
+}
+
+List<T>: Vec<T> = {
+	<mut l:List<T>> "," <x:T> => {l.push(x); l},
+	T => vec![<>],
+}
+
+Var: String = {r"[a-zA-Z][a-zA-Z0-9]+" => String::from(<>)}
+
+pub Expr: Expr = {
+	// ? this causes generated code to fail in compiling
+	"(" Expr ")" => <>,
+	
+	// Representing precedence in LR(1) grammar is notoriously annoying. 
+	// To focus on llvm, we don't bother work on this. 
+	<o:UniOps> <e:Expr> => Expr::Uni(o, Box::new(e)),
+	"(" <l:Expr> <o:BinOps> <r:Expr> ")" => Expr::Bin(Box::new(l), o, Box::new(r)),
+	
+	// Function Call
+	<f:r"[a-zA-Z][a-zA-Z0-9]+!"> "(" <args:List<Expr>>  ")"
+		=> Expr::Call(String::from(f.trim_end_matches('!')), args),
+}
+
+pub Stmt: Stmt = {
+	"let" <x:Var> "=" <e:Expr> ";" => Stmt::Let(x, e),
+}
