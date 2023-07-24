@@ -13,27 +13,62 @@ UniOps: Ops = {
 	"~" => Ops::Neg,
 }
 
-List<T>: Vec<T> = {
-	<mut l:List<T>> "," <x:T> => {l.push(x); l},
+List<T, S>: Vec<T> = {
+	<mut l:List<T, S>> S <x:T> => {l.push(x); l},
 	T => vec![<>],
 }
 
-Var: String = {r"[a-zA-Z][a-zA-Z0-9]+" => String::from(<>)}
+Var: String = {r"[a-zA-Z][a-zA-Z0-9]*" => String::from(<>)}
 
-pub Expr: Expr = {
-	// ? this causes generated code to fail in compiling
-	"(" Expr ")" => <>,
-	
-	// Representing precedence in LR(1) grammar is notoriously annoying. 
-	// To focus on llvm, we don't bother work on this. 
-	<o:UniOps> <e:Expr> => Expr::Uni(o, Box::new(e)),
-	"(" <l:Expr> <o:BinOps> <r:Expr> ")" => Expr::Bin(Box::new(l), o, Box::new(r)),
-	
-	// Function Call
-	<f:r"[a-zA-Z][a-zA-Z0-9]+!"> "(" <args:List<Expr>>  ")"
-		=> Expr::Call(String::from(f.trim_end_matches('!')), args),
+Type: Type = {
+	"f32" => Type::F32,
+	"f64" => Type::F64,
+	"i32" => Type::I32,
+	"i64" => Type::I64,
+	"(" <t:List<Type, ",">> ")" => Type::Tup(t),
 }
 
-pub Stmt: Stmt = {
+Expr: Expr = {
+	// Representing precedence in LR(1) grammar is notoriously annoying. 
+	// To focus on llvm functionalities, we don't bother work on this. 
+	"(" <o:UniOps> <e:Expr> ")" => Expr::Uni(o, Box::new(e)),
+	"(" <l:Expr> <o:BinOps> <r:Expr> ")" => Expr::Bin(Box::new(l), o, Box::new(r)),
+	"(" <es:List<Expr, ",">> ")" => Expr::Tup(es),
+	
+	// Variable
+	<v:Var> => Expr::Var(v),
+	
+	// Function Call
+	<f:r"[a-zA-Z][a-zA-Z0-9]+!"> "(" <args:List<Expr, ",">>  ")"
+		=> Expr::Call(String::from(f.trim_end_matches('!')), args),
+	
+	// Element
+	<e:Expr> "." <n:r"0|([1-9][0-9]*)"> => Expr::Elem(Box::new(e), n.parse::<usize>().unwrap()),
+
+	// Numerials
+	<n:r"0f32|([1-9][0-9]*f32)|([0-9]*\.[0-9]*f32)"> => Expr::F32(n.trim_end_matches("f32").parse::<f32>().unwrap()),
+	<n:r"0f64|([1-9][0-9]*f64)|([0-9]*\.[0-9]*f64)"> => Expr::F64(n.trim_end_matches("f64").parse::<f64>().unwrap()),
+	<n:r"0i32|([1-9][0-9]*i32)"> => Expr::I32(n.trim_end_matches("i32").parse::<i32>().unwrap()),
+	<n:r"0i64|([1-9][0-9]*i64)"> => Expr::I64(n.trim_end_matches("i32").parse::<i64>().unwrap()),
+}
+
+VarType: (String, Type) = {
+	<v:Var> ":" <t:Type> => (v, t),
+}
+
+Stmt: Stmt = {
 	"let" <x:Var> "=" <e:Expr> ";" => Stmt::Let(x, e),
+	"let" "(" <xs:List<Var, ",">> ")" "=" <e:Expr> ";" => Stmt::LetTup(xs, e),
+	"fn" <f:Var> "(" <args:List<VarType, ",">> ")" "{" <stmts:List<Stmt, ",">>  "}" => Stmt::Func(f, args, stmts),
+	"return" <e:Expr> ";" => Stmt::Return(Box::new(e)),
+}
+
+pub Item: Item = {
+	Stmt => Item::Stmt(<>),
+	Expr => Item::Expr(<>),
+}
+
+pub Items: Vec<Item> = {
+	<mut l:Items> <i:Item> => {l.push(i); l},
+	Item => vec![<>],
 }
